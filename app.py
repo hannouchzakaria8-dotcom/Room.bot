@@ -1,18 +1,18 @@
-import requests, os, sys, jwt, json, binascii, time, urllib3, xKEys, base64, datetime, re, socket, threading
+import requests, os, sys, jwt, json, binascii, time, urllib3, base64, datetime, re, socket, threading
 import psutil
 from protobuf_decoder.protobuf_decoder import Parser
 from byte import *
 from byte import xSendTeamMsg, xSEndMsg
 from byte import Auth_Chat
-from xHeaders import *
 from datetime import datetime
 from google.protobuf.timestamp_pb2 import Timestamp
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from black9 import openroom, spmroom
 import telebot
 from telebot import types
 import logging
+import asyncio
+from aiohttp import web
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  
 
@@ -38,6 +38,7 @@ spam_start_times_lock = threading.Lock()
 group_requests = {}  # {group_id: {'user_id': user_id, 'user_name': name, 'group_title': title, 'time': timestamp}}
 group_requests_lock = threading.Lock()
 allowed_groups = {}  # {group_id: {'added_by': admin_id, 'added_at': time}}
+allowed_groups_lock = threading.Lock()
 
 # ==================== نظام تصحيح الأخطاء ====================
 DEBUG_MODE = True
@@ -314,12 +315,29 @@ def list_requests_command(message):
         
         bot.reply_to(message, format_message("📋 Pending Requests", content), parse_mode='HTML')
 
-# ==================== باقي دوال البوت ====================
+# ==================== دوال التحقق من المجموعات ====================
 
 def is_group_active(chat_id):
     """التحقق من أن المجموعة مفعلة"""
     with allowed_groups_lock:
         return chat_id in allowed_groups
+
+def group_only(message):
+    """التحقق من أن الأمر في مجموعة مفعلة"""
+    if message.chat.type in ['group', 'supergroup']:
+        if not is_group_active(message.chat.id):
+            bot.reply_to(
+                message, 
+                format_message("❌ Not Activated", 
+                             "This bot is not activated in this group yet.\n"
+                             "Please wait for owner approval."),
+                parse_mode='HTML'
+            )
+            return False
+        return True
+    return True  # الخاص مسموح دايماً
+
+# ==================== باقي أوامر البوت ====================
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -336,7 +354,7 @@ def start(message):
             )
             return
     
-    # باقي كود /start (نفس السابق)
+    # باقي كود /start
     user_id = message.from_user.id
     is_admin = user_id in ADMIN_IDS
     chat_type = message.chat.type
@@ -387,26 +405,6 @@ def start(message):
         bot.reply_to(message, msg, parse_mode='HTML')
     else:
         bot.reply_to(message, "🗿")
-
-# ==================== باقي أوامر البوت ====================
-# (نفس الأوامر السابقة مع إضافة التحقق من المجموعات)
-
-def group_only(message):
-    """التحقق من أن الأمر في مجموعة مفعلة"""
-    if message.chat.type in ['group', 'supergroup']:
-        if not is_group_active(message.chat.id):
-            bot.reply_to(
-                message, 
-                format_message("❌ Not Activated", 
-                             "This bot is not activated in this group yet.\n"
-                             "Please wait for owner approval."),
-                parse_mode='HTML'
-            )
-            return False
-        return True
-    return True  # الخاص مسموح دايماً
-
-# ==================== باقي الأوامر مع إضافة group_only ====================
 
 @bot.message_handler(commands=['spam'])
 def spam_command(message):
@@ -482,7 +480,6 @@ def debug_command(message):
     bot.reply_to(message, format_message("🐛 Debug Mode", f"Debug mode {status}!"), parse_mode='HTML')
 
 # ==================== الدوال الأصلية للبوت ====================
-# (نفس السابق)
 
 def restart_accounts():
     time.sleep(2)
@@ -706,7 +703,7 @@ class FF_CLient():
             while self.connection_active:
                 try:
                     self.DaTa2 = self.CliEnts2.recv(99999)
-                    if '0500' in self.DaTa2.hex()[0:4] and len(self.DaTa2.hex()) > 30:	         	    	    
+                    if '0500' in self.DaTa2.hex()[0:4] and len(self.DaTa2.hex()) > 30:                        
                             self.packet = json.loads(DeCode_PackEt(f'08{self.DaTa2.hex().split("08", 1)[1]}'))
                             self.AutH = self.packet['5']['data']['7']['data']
                 except:pass
@@ -715,7 +712,7 @@ class FF_CLient():
             self.AutH_ToKen_0115 = tok    
             self.CliEnts = socket.create_connection((host , int(port)))
             self.CliEnts.send(bytes.fromhex(self.AutH_ToKen_0115))  
-            self.DaTa = self.CliEnts.recv(1024)          	        
+            self.DaTa = self.CliEnts.recv(1024)                    
             threading.Thread(target=self.Connect_SerVer_OnLine, args=(Token , tok , host , port , key , iv , host2 , port2)).start()
             self.Exemple = xMsGFixinG('12345678')
             
@@ -729,41 +726,41 @@ class FF_CLient():
             while True:      
                 try:
                     self.DaTa = self.CliEnts.recv(1024)   
-                    if len(self.DaTa) == 0 or (hasattr(self, 'DaTa2') and len(self.DaTa2) == 0):	            		
+                    if len(self.DaTa) == 0 or (hasattr(self, 'DaTa2') and len(self.DaTa2) == 0):                            
                         print(f"Connection lost for account {self.id}, reconnecting...")
-                        try:            		    
+                        try:                                
                             self.CliEnts.close()
                             if hasattr(self, 'CliEnts2'):
                                 self.CliEnts2.close()
                             
                             time.sleep(3)
-                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)                    		                    
+                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)                                                    
                         except:
                             print(f"Failed to reconnect account {self.id}")
                             with connected_clients_lock:
                                 if self.id in connected_clients:
                                     del connected_clients[self.id]
-                            break	            
+                            break                        
                                       
                     if '/pp/' in self.input_msg[:4]:
-                        self.target_id = self.input_msg[4:]	 
+                        self.target_id = self.input_msg[4:]     
                         self.Zx = ChEck_Commande(self.target_id)
-                        if True == self.Zx:	            		     
+                        if True == self.Zx:                                     
                             threading.Thread(target=send_normal_spam_from_all_accounts, args=(self.target_id,)).start()
-                            time.sleep(2.5)    			         
+                            time.sleep(2.5)                                     
                             self.CliEnts.send(xSEndMsg(f'\n[b][c][{ArA_CoLor()}] SuccEss Spam To {xMsGFixinG(self.target_id)} From All Accounts\n', 2 , self.DeCode_CliEnt_Uid , self.DeCode_CliEnt_Uid , key , iv))
                             time.sleep(1.3)
                             self.CliEnts.close()
                             if hasattr(self, 'CliEnts2'):
                                 self.CliEnts2.close()
-                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)	            		      	
+                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)                                    
                         elif False == self.Zx: 
-                            self.CliEnts.send(xSEndMsg(f'\n[b][c][{ArA_CoLor()}] - PLease Use /pp/<id>\n - Ex : /pp/{self.Exemple}\n', 2 , self.DeCode_CliEnt_Uid , self.DeCode_CliEnt_Uid , key , iv))	
+                            self.CliEnts.send(xSEndMsg(f'\n[b][c][{ArA_CoLor()}] - PLease Use /pp/<id>\n - Ex : /pp/{self.Exemple}\n', 2 , self.DeCode_CliEnt_Uid , self.DeCode_CliEnt_Uid , key , iv))    
                             time.sleep(1.1)
                             self.CliEnts.close()
                             if hasattr(self, 'CliEnts2'):
                                 self.CliEnts2.close()
-                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)	            		
+                            self.Connect_SerVer(Token , tok , host , port , key , iv , host2 , port2)                        
 
                 except Exception as e:
                     print(f"Error in Connect_SerVer: {e}")
@@ -963,8 +960,71 @@ def StarT_SerVer():
     for thread in threads:
         thread.join()
 
+# ==================== إضافة خادم HTTP لـ Render ====================
+
+PORT = int(os.environ.get('PORT', 10000))
+RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL', '')
+
+async def handle_health(request):
+    """نقطة نهاية فحص الصحة - Render يحتاج هذا"""
+    return web.Response(text="healthy")
+
+async def handle_root(request):
+    """الصفحة الرئيسية"""
+    return web.Response(text="✅ Bot is running!")
+
+async def start_http_server():
+    """تشغيل خادم HTTP في الخلفية"""
+    app = web.Application()
+    app.router.add_get('/', handle_root)
+    app.router.add_get('/health', handle_health)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    logger.info(f"✅ HTTP server started on port {PORT}")
+    
+    # إبقاء الخادم شغالاً
+    await asyncio.Event().wait()
+
+def self_ping_worker():
+    """يرسل طلب ping لنفسه كل 5 دقائق لمنع النوم"""
+    time.sleep(30)  # انتظر 30 ثانية بعد بدء التشغيل
+    while True:
+        try:
+            if RENDER_EXTERNAL_URL:
+                ping_url = f"{RENDER_EXTERNAL_URL.rstrip('/')}/health"
+                import requests
+                response = requests.get(ping_url, timeout=10)
+                logger.info(f"📡 Self-ping: {response.status_code}")
+            else:
+                logger.warning("⚠️ RENDER_EXTERNAL_URL غير معرّف")
+        except Exception as e:
+            logger.error(f"❌ خطأ في self-ping: {e}")
+        time.sleep(300)  # 5 دقائق
+
+# إعداد التسجيل
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 if __name__ == "__main__":
+    # تشغيل البوت في thread منفصل
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
     
+    # تشغيل خادم HTTP في thread منفصل
+    def run_http_server():
+        asyncio.run(start_http_server())
+    
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    
+    # تشغيل نظام self-ping
+    ping_thread = threading.Thread(target=self_ping_worker, daemon=True)
+    ping_thread.start()
+    
+    logger.info("🚀 تم تشغيل جميع الخدمات - البوت يعمل الآن!")
+    
+    # تشغيل البوت الرئيسي
     StarT_SerVer()
